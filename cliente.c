@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 
 // -------------------- CONFIGURACIÓN --------------------
-#define SERVER_IP "192.168.94.129"  // Cambia por la IP de tu servidor
+#define SERVER_IP "192.168.1.211"  // Cambia por la IP de tu servidor
 #define SERVER_PORT 12345
 #define BUFFER_TAM 256
 
@@ -29,6 +29,9 @@
 #define CDATA        0x14
 #define ENABLE_PON   0x01
 #define ENABLE_AEN   0x02
+
+
+#define NUM_MUESTRAS 10
 
 // Archivo I2C
 int fd_mpu, fd_tcs;
@@ -66,9 +69,16 @@ void read_acceleration(int16_t *ax, int16_t *ay, int16_t *az) {
 void *read_mpu6050(void *arg) {
     struct udp_context *ctx = (struct udp_context *)arg;
     int16_t ax, ay, az;
-    char mensaje[BUFFER_TAM];
+    //char mensaje[BUFFER_TAM];
+    char msg [256];
+    char buffer_mpu[NUM_MUESTRAS][BUFFER_TAM];
+        int contador = 0;
+        sprintf(msg, "Hello WORLD!!!!!!!!!!!!!!");
+
+       sendto(ctx->sockfd, msg, strlen(msg), 0,
+              (struct sockaddr *)&ctx->servidor, sizeof(ctx->servidor));
     while (1) {
-        read_acceleration(&ax, &ay, &az);
+      /*  read_acceleration(&ax, &ay, &az);
         double ax_g = ax / ACCEL_SCALE;
         double ay_g = ay / ACCEL_SCALE;
         double az_g = az / ACCEL_SCALE;
@@ -80,7 +90,34 @@ void *read_mpu6050(void *arg) {
         sendto(ctx->sockfd, mensaje, strlen(mensaje), 0,
                (struct sockaddr *)&ctx->servidor, sizeof(ctx->servidor));
 
-        usleep(500000); // 500 ms
+        usleep(1000000); // 1 s*/
+    	read_acceleration(&ax, &ay, &az);
+    	        double ax_g = ax / ACCEL_SCALE;
+    	        double ay_g = ay / ACCEL_SCALE;
+    	        double az_g = az / ACCEL_SCALE;
+
+    	        snprintf(buffer_mpu[contador], BUFFER_TAM,
+    	                 "%.2f %.2f %.2f",
+						 	 	ay_g, az, az_g);
+
+    	        contador++;
+
+    	        if (contador == NUM_MUESTRAS) {
+    	            // Concatenar mensajes y enviar
+    	            char mensaje_total[NUM_MUESTRAS * BUFFER_TAM] = "";
+    	            for (int i = 0; i < NUM_MUESTRAS; i++) {
+    	                strcat(mensaje_total, buffer_mpu[i]);
+    	                strcat(mensaje_total, "\n");
+    	            }
+
+    	            sendto(ctx->sockfd, mensaje_total, strlen(mensaje_total), 0,
+    	                   (struct sockaddr *)&ctx->servidor, sizeof(ctx->servidor));
+
+    	            contador = 0; // Reiniciar contador
+    	        }
+
+    	        sleep(1);
+
     }
     return NULL;
 }
@@ -114,9 +151,11 @@ void read_color(uint16_t *clear, uint16_t *red, uint16_t *green, uint16_t *blue)
 void *read_tcs3472(void *arg) {
     struct udp_context *ctx = (struct udp_context *)arg;
     uint16_t clear, red, green, blue;
-    char mensaje[BUFFER_TAM];
+    //char mensaje[BUFFER_TAM];
+    char buffer_color[NUM_MUESTRAS][BUFFER_TAM];
+    int contador = 0;
     while (1) {
-        read_color(&clear, &red, &green, &blue);
+       /* read_color(&clear, &red, &green, &blue);
         if (clear != 0) {
             float r = (float)red / clear * 100;
             float g = (float)green / clear * 100;
@@ -130,68 +169,112 @@ void *read_tcs3472(void *arg) {
                    (struct sockaddr *)&ctx->servidor, sizeof(ctx->servidor));
         }
 
-        usleep(500000); // 500 ms
+        usleep(1000000); // 1 s*/
+    	read_color(&clear, &red, &green, &blue);
+    	        if (clear != 0) {
+    	            float r = (float)red / clear * 100;
+    	            float g = (float)green / clear * 100;
+    	            float b = (float)blue / clear * 100;
+
+    	            snprintf(buffer_color[contador], BUFFER_TAM,
+    	                     "%d %d %d %.2f %.2f %.2f",
+    	                     red, green, blue, clear, r, g, b);
+
+    	            contador++;
+
+    	            if (contador == NUM_MUESTRAS) {
+    	                char mensaje_total[NUM_MUESTRAS * BUFFER_TAM] = "";
+    	                for (int i = 0; i < NUM_MUESTRAS; i++) {
+    	                    strcat(mensaje_total, buffer_color[i]);
+    	                    strcat(mensaje_total, "\n");
+    	                }
+
+    	                sendto(ctx->sockfd, mensaje_total, strlen(mensaje_total), 0,
+    	                       (struct sockaddr *)&ctx->servidor, sizeof(ctx->servidor));
+
+    	                char ack_buffer[BUFFER_TAM];
+						socklen_t addr_len = sizeof(ctx->servidor);
+						ssize_t n = recvfrom(ctx->sockfd, ack_buffer, BUFFER_TAM - 1, 0,
+											 (struct sockaddr *)&ctx->servidor, &addr_len);
+						if (n > 0) {
+							ack_buffer[n] = '\0'; // Terminación nula
+							printf("ACK recibido del servidor \n");
+						}
+
+    	                contador = 0;
+    	            }
+    	        }
+
+    	        sleep(1);
     }
     return NULL;
 }
 
 // -------------------- MAIN --------------------
+
+//Recive ACK de knowlegment
 int main() {
-    // Inicializar I2C para MPU-6000
-    fd_mpu = open("/dev/i2c-1", O_RDWR);
-    if (fd_mpu < 0) {
-        perror("Error al abrir I2C para MPU-6000");
-        return 1;
-    }
-    if (ioctl(fd_mpu, I2C_SLAVE, MPU6050_ADDR) < 0) {
-        perror("Error al conectar con MPU-6000");
-        close(fd_mpu);
-        return 1;
-    }
-    init_mpu6050();
+	//struct udp_context *ctx = (struct udp_context *)arg;
+	// Inicializar I2C para MPU-6000
+	fd_mpu = open("/dev/i2c-1", O_RDWR);
+	if (fd_mpu < 0) {
+		perror("Error al abrir I2C para MPU-6000");
+		return 1;
+	}
+	if (ioctl(fd_mpu, I2C_SLAVE, MPU6050_ADDR) < 0) {
+		perror("Error al conectar con MPU-6000");
+		close(fd_mpu);
+		return 1;
+	}
+	init_mpu6050();
 
-    // Inicializar I2C para TCS3472
-    fd_tcs = open("/dev/i2c-1", O_RDWR);
-    if (fd_tcs < 0) {
-        perror("Error al abrir I2C para TCS3472");
-        return 1;
-    }
-    if (ioctl(fd_tcs, I2C_SLAVE, TCS3472_ADDR) < 0) {
-        perror("Error al conectar con TCS3472");
-        close(fd_tcs);
-        return 1;
-    }
-    init_tcs3472();
+	// Inicializar I2C para TCS3472
+	fd_tcs = open("/dev/i2c-1", O_RDWR);
+	if (fd_tcs < 0) {
+		perror("Error al abrir I2C para TCS3472");
+		return 1;
+	}
+	if (ioctl(fd_tcs, I2C_SLAVE, TCS3472_ADDR) < 0) {
+		perror("Error al conectar con TCS3472");
+		close(fd_tcs);
+		return 1;
+	}
+	init_tcs3472();
 
-    // Crear socket UDP
-    struct udp_context ctx;
-    ctx.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (ctx.sockfd < 0) {
-        perror("Error al crear socket UDP");
-        return 1;
-    }
+	// Crear socket UDP
+	struct udp_context ctx;
+	ctx.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (ctx.sockfd < 0) {
+		perror("Error al crear socket UDP");
+		return 1;
+	}
 
-    memset(&ctx.servidor, 0, sizeof(ctx.servidor));
-    ctx.servidor.sin_family = AF_INET;
-    ctx.servidor.sin_port = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, SERVER_IP, &ctx.servidor.sin_addr) <= 0) {
-        perror("Dirección IP inválida");
-        close(ctx.sockfd);
-        return 1;
-    }
+	memset(&ctx.servidor, 0, sizeof(ctx.servidor));
+	ctx.servidor.sin_family = AF_INET;
+	ctx.servidor.sin_port = htons(SERVER_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &ctx.servidor.sin_addr) <= 0) {
+		perror("Dirección IP inválida");
+		close(ctx.sockfd);
+		return 1;
+	}
+	//struct udp_context *ctx;
+	//TODO: Recive ACK de knowlegment
 
-    // Crear hilos
-    pthread_t thread_mpu, thread_tcs;
-    pthread_create(&thread_mpu, NULL, read_mpu6050, &ctx);
-    pthread_create(&thread_tcs, NULL, read_tcs3472, &ctx);
+	// Crear hilos
+	pthread_t thread_mpu, thread_tcs;
+	pthread_create(&thread_mpu, NULL, read_mpu6050, &ctx);
+	pthread_create(&thread_tcs, NULL, read_tcs3472, &ctx);
 
-    // Esperar hilos
-    pthread_join(thread_mpu, NULL);
-    pthread_join(thread_tcs, NULL);
+	// Esperar hilos
+	pthread_join(thread_mpu, NULL);
+	pthread_join(thread_tcs, NULL);
 
-    // Cerrar recursos
-    close(fd_mpu);
-    close(fd_tcs);
-    close(ctx.sockfd);
-    return 0;
+	// Cerrar recursos
+	close(fd_mpu);
+	close(fd_tcs);
+	close(ctx.sockfd);
+	return 0;
+
 }
+
+
